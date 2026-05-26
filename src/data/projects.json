@@ -1,0 +1,10 @@
+[
+  {
+    "id": "example-part",
+    "title": "Example Part",
+    "description": "Replace this with your own project. Export your model from Fusion 360 as a GLB file, drop it into public/models/, then update this entry. See ADDING_PROJECTS.md for the full guide.",
+    "software": ["Fusion 360"],
+    "modelFile": "example.glb",
+    "order": 0
+  }
+]
