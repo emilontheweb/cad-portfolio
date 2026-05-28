@@ -1,4 +1,4 @@
-import { Suspense, Component, useRef, useState, useEffect } from 'react'
+import { Suspense, Component, useRef, useEffect } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
 import { OrbitControls, useGLTF, useProgress, Html, Environment } from '@react-three/drei'
 import { useLoader } from '@react-three/fiber'
@@ -80,21 +80,15 @@ class ModelErrorBoundary extends Component {
 // ── Scene ─────────────────────────────────────────────────────────────────────
 
 const ORIGIN = new THREE.Vector3(0, 0, 0)
-const ROTATE_RESUME_DELAY = 2000
-const PAN_RESET_DELAY     = 2000
+const ROTATE_RESUME_DELAY = 2000  // ms
+const PAN_RESET_DELAY     = 2000  // ms
 
-/**
- * All interaction logic lives here so it can access OrbitControls directly.
- * OrbitControls fires its own 'start'/'end' events at the document level,
- * which means they fire correctly even when the mouse is released outside the modal.
- */
-function Scene({ url, interactive, autoRotate, onAutoRotateChange }) {
+function Scene({ url, interactive }) {
   const controlsRef    = useRef()
   const rotateTimer    = useRef(null)
   const panTimer       = useRef(null)
   const isResettingPan = useRef(false)
 
-  // Wire up OrbitControls events after the controls mount
   useEffect(() => {
     const ctrl = controlsRef.current
     if (!ctrl || !interactive) return
@@ -105,22 +99,21 @@ function Scene({ url, interactive, autoRotate, onAutoRotateChange }) {
     }
 
     const onStart = () => {
-      // Any interaction begins — stop auto-rotate and cancel pending timers
       clearTimers()
       isResettingPan.current = false
-      onAutoRotateChange(false)
+      // Write directly to the controls object — no React re-render needed.
+      // This takes effect on the very next frame inside drei's own useFrame.
+      ctrl.autoRotate = false
     }
 
     const onEnd = () => {
-      // Interaction ends — schedule auto-rotate resume
-      rotateTimer.current = setTimeout(
-        () => onAutoRotateChange(true),
-        ROTATE_RESUME_DELAY
-      )
+      rotateTimer.current = setTimeout(() => {
+        ctrl.autoRotate = true
+      }, ROTATE_RESUME_DELAY)
 
-      // If the camera target has drifted from the origin (i.e. user panned),
-      // schedule a smooth re-centre. This fires even if the mouse was released
-      // outside the modal, because OrbitControls listens at the document level.
+      // If the orbit target has drifted (user panned), schedule a re-centre.
+      // OrbitControls fires 'end' at the document level, so this works even
+      // when the mouse is released outside the modal.
       if (ctrl.target.distanceTo(ORIGIN) > 0.05) {
         panTimer.current = setTimeout(() => {
           isResettingPan.current = true
@@ -130,23 +123,31 @@ function Scene({ url, interactive, autoRotate, onAutoRotateChange }) {
 
     ctrl.addEventListener('start', onStart)
     ctrl.addEventListener('end', onEnd)
-
     return () => {
       ctrl.removeEventListener('start', onStart)
       ctrl.removeEventListener('end', onEnd)
       clearTimers()
     }
-  }, [interactive, onAutoRotateChange])
+  }, [interactive])
 
-  // Lerp the orbit target back to centre each frame when a reset is in progress
   useFrame(() => {
     const ctrl = controlsRef.current
     if (!ctrl || !isResettingPan.current) return
+
+    const prevTarget = ctrl.target.clone()
     ctrl.target.lerp(ORIGIN, 0.06)
-    ctrl.update()
+
+    // Translate the camera by the exact same delta as the target.
+    // This keeps the orbit radius constant — without this, OrbitControls
+    // recomputes a wrong radius on the next update() and the model shrinks.
+    const delta = new THREE.Vector3().subVectors(ctrl.target, prevTarget)
+    ctrl.object.position.add(delta)
+
     if (ctrl.target.distanceTo(ORIGIN) < 0.01) {
+      // Final snap: close the remaining gap for both target and camera
+      const snap = new THREE.Vector3().subVectors(ORIGIN, ctrl.target)
+      ctrl.object.position.add(snap)
       ctrl.target.copy(ORIGIN)
-      ctrl.update()
       isResettingPan.current = false
     }
   })
@@ -169,7 +170,7 @@ function Scene({ url, interactive, autoRotate, onAutoRotateChange }) {
         enablePan={interactive}
         enableZoom={interactive}
         enableRotate={true}
-        autoRotate={autoRotate}
+        autoRotate={true}
         autoRotateSpeed={1.5}
         minDistance={1}
         maxDistance={12}
@@ -181,8 +182,6 @@ function Scene({ url, interactive, autoRotate, onAutoRotateChange }) {
 // ── Public component ──────────────────────────────────────────────────────────
 
 export default function ModelViewer({ url, interactive = false }) {
-  const [autoRotate, setAutoRotate] = useState(!interactive)
-
   return (
     <div
       style={{ width: '100%', height: '100%' }}
@@ -194,12 +193,7 @@ export default function ModelViewer({ url, interactive = false }) {
         style={{ background: 'transparent' }}
         gl={{ antialias: true, alpha: true }}
       >
-        <Scene
-          url={url}
-          interactive={interactive}
-          autoRotate={autoRotate}
-          onAutoRotateChange={setAutoRotate}
-        />
+        <Scene url={url} interactive={interactive} />
       </Canvas>
     </div>
   )
