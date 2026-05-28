@@ -6,12 +6,12 @@ const BASE = import.meta.env.BASE_URL
  * Edit the constants below to personalise the header.
  * Profile picture: drop your photo into public/ and update PROFILE_IMG.
  */
-const NAME        = 'Your Name'
-const TITLE       = 'Mechanical Design Engineer'
-const BIO         = 'I design precise, manufacturable parts using Fusion 360 and SolidWorks. This portfolio showcases my 3D modelling work — feel free to rotate and explore every model.'
-const EMAIL       = 'your@email.com'
-const LINKEDIN    = 'https://linkedin.com/in/yourhandle'
-const GITHUB      = 'https://github.com/yourusername'
+const NAME        = 'Emil'                          // TODO: add your full name
+const TITLE       = 'Mechanical Design Engineer'    // TODO: update if needed
+const BIO         = 'I design precise, manufacturable parts using Fusion 360. This portfolio showcases my 3D modelling work — feel free to rotate and explore every model.'
+const EMAIL       = 'emil@emilontheweb.dev'
+const LINKEDIN    = 'https://linkedin.com/in/yourhandle'  // TODO: add your LinkedIn URL
+const GITHUB      = 'https://github.com/emilontheweb'
 const PROFILE_IMG = null   // e.g. `${BASE}profile.jpg`  — set to null to show initials instead
 
 export default function Header() {
