@@ -1,9 +1,9 @@
-import { Suspense, Component } from 'react'
+import { Suspense, Component, useRef, useState, useEffect } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
 import { OrbitControls, useGLTF, useProgress, Html, Environment } from '@react-three/drei'
 import { useLoader } from '@react-three/fiber'
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js'
-import { useRef } from 'react'
+import * as THREE from 'three'
 
 // ── Loading indicator ─────────────────────────────────────────────────────────
 
@@ -21,7 +21,7 @@ function Loader() {
   )
 }
 
-// ── Placeholder shown when model file is missing ──────────────────────────────
+// ── Placeholder when model file is missing ────────────────────────────────────
 
 function PlaceholderModel() {
   const mesh = useRef()
@@ -29,12 +29,10 @@ function PlaceholderModel() {
     if (mesh.current) mesh.current.rotation.y += delta * 0.4
   })
   return (
-    <group>
-      <mesh ref={mesh} castShadow>
-        <torusKnotGeometry args={[0.8, 0.25, 128, 32]} />
-        <meshStandardMaterial color="#3a5a8a" metalness={0.6} roughness={0.3} />
-      </mesh>
-    </group>
+    <mesh ref={mesh} castShadow>
+      <torusKnotGeometry args={[0.8, 0.25, 128, 32]} />
+      <meshStandardMaterial color="#3a5a8a" metalness={0.6} roughness={0.3} />
+    </mesh>
   )
 }
 
@@ -60,7 +58,7 @@ function Model({ url }) {
   return <GltfModel url={url} />
 }
 
-// ── Error boundary for inside the Canvas ─────────────────────────────────────
+// ── Error boundary for Canvas crashes ────────────────────────────────────────
 
 class ModelErrorBoundary extends Component {
   constructor(props) { super(props); this.state = { hasError: false }; }
@@ -79,9 +77,35 @@ class ModelErrorBoundary extends Component {
   }
 }
 
-// ── Scene contents ────────────────────────────────────────────────────────────
+// ── Scene ─────────────────────────────────────────────────────────────────────
 
-function Scene({ url, interactive }) {
+const ORIGIN = new THREE.Vector3(0, 0, 0)
+
+/**
+ * panResetSignal: increments each time a pan-reset should be triggered.
+ * useEffect compares it to the previous value so every increment fires once.
+ */
+function Scene({ url, interactive, autoRotate, panResetSignal }) {
+  const controlsRef = useRef()
+  const shouldResetPan = useRef(false)
+
+  useEffect(() => {
+    if (panResetSignal > 0) shouldResetPan.current = true
+  }, [panResetSignal])
+
+  // Smoothly lerp the orbit target back to the origin after a pan
+  useFrame(() => {
+    const ctrl = controlsRef.current
+    if (!ctrl || !shouldResetPan.current) return
+    ctrl.target.lerp(ORIGIN, 0.06)
+    ctrl.update()
+    if (ctrl.target.distanceTo(ORIGIN) < 0.01) {
+      ctrl.target.copy(ORIGIN)
+      ctrl.update()
+      shouldResetPan.current = false
+    }
+  })
+
   return (
     <>
       <ambientLight intensity={0.4} />
@@ -96,10 +120,11 @@ function Scene({ url, interactive }) {
       </Suspense>
 
       <OrbitControls
+        ref={controlsRef}
         enablePan={interactive}
         enableZoom={interactive}
         enableRotate={true}
-        autoRotate={!interactive}
+        autoRotate={autoRotate}
         autoRotateSpeed={1.5}
         minDistance={1}
         maxDistance={12}
@@ -110,23 +135,68 @@ function Scene({ url, interactive }) {
 
 // ── Public component ──────────────────────────────────────────────────────────
 
-/**
- * ModelViewer
- * @param {string}  url          - path to .glb or .stl file
- * @param {boolean} interactive  - full controls vs auto-rotate thumbnail
- */
+const ROTATE_RESUME_DELAY = 2000  // ms before auto-rotate resumes after release
+const PAN_RESET_DELAY     = 2000  // ms before panned view snaps back to centre
+
 export default function ModelViewer({ url, interactive = false }) {
+  const [autoRotate, setAutoRotate] = useState(!interactive)
+  const [panResetSignal, setPanResetSignal] = useState(0)
+  const rotateTimer = useRef(null)
+  const panTimer = useRef(null)
+
+  const clearTimers = () => {
+    clearTimeout(rotateTimer.current)
+    clearTimeout(panTimer.current)
+  }
+
+  const handleMouseDown = () => {
+    if (!interactive) return
+    clearTimers()
+    setAutoRotate(false)
+  }
+
+  const handleMouseUp = (e) => {
+    if (!interactive) return
+
+    // Resume auto-rotation after delay
+    rotateTimer.current = setTimeout(() => setAutoRotate(true), ROTATE_RESUME_DELAY)
+
+    // Right-click (button 2) = pan — schedule a target reset
+    if (e.button === 2) {
+      panTimer.current = setTimeout(
+        () => setPanResetSignal((s) => s + 1),
+        PAN_RESET_DELAY
+      )
+    }
+  }
+
+  // If the user drags outside the canvas and releases there, still resume
+  const handleMouseLeave = () => {
+    if (!interactive || !rotateTimer.current) return
+    rotateTimer.current = setTimeout(() => setAutoRotate(true), ROTATE_RESUME_DELAY)
+  }
+
   return (
-    <Canvas
-      camera={{ position: [0, 1.5, 4], fov: 45 }}
-      shadows
-      style={{ background: 'transparent' }}
-      gl={{ antialias: true, alpha: true }}
-      onCreated={({ gl }) => {
-        gl.setClearColor(0x000000, 0)
-      }}
+    <div
+      style={{ width: '100%', height: '100%' }}
+      onMouseDown={handleMouseDown}
+      onMouseUp={handleMouseUp}
+      onMouseLeave={handleMouseLeave}
+      onContextMenu={(e) => e.preventDefault()}
     >
-      <Scene url={url} interactive={interactive} />
-    </Canvas>
+      <Canvas
+        camera={{ position: [0, 1.5, 4], fov: 45 }}
+        shadows
+        style={{ background: 'transparent' }}
+        gl={{ antialias: true, alpha: true }}
+      >
+        <Scene
+          url={url}
+          interactive={interactive}
+          autoRotate={autoRotate}
+          panResetSignal={panResetSignal}
+        />
+      </Canvas>
+    </div>
   )
 }
