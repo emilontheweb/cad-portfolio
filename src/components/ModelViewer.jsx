@@ -80,29 +80,74 @@ class ModelErrorBoundary extends Component {
 // ── Scene ─────────────────────────────────────────────────────────────────────
 
 const ORIGIN = new THREE.Vector3(0, 0, 0)
+const ROTATE_RESUME_DELAY = 2000
+const PAN_RESET_DELAY     = 2000
 
 /**
- * panResetSignal: increments each time a pan-reset should be triggered.
- * useEffect compares it to the previous value so every increment fires once.
+ * All interaction logic lives here so it can access OrbitControls directly.
+ * OrbitControls fires its own 'start'/'end' events at the document level,
+ * which means they fire correctly even when the mouse is released outside the modal.
  */
-function Scene({ url, interactive, autoRotate, panResetSignal }) {
-  const controlsRef = useRef()
-  const shouldResetPan = useRef(false)
+function Scene({ url, interactive, autoRotate, onAutoRotateChange }) {
+  const controlsRef    = useRef()
+  const rotateTimer    = useRef(null)
+  const panTimer       = useRef(null)
+  const isResettingPan = useRef(false)
 
+  // Wire up OrbitControls events after the controls mount
   useEffect(() => {
-    if (panResetSignal > 0) shouldResetPan.current = true
-  }, [panResetSignal])
+    const ctrl = controlsRef.current
+    if (!ctrl || !interactive) return
 
-  // Smoothly lerp the orbit target back to the origin after a pan
+    const clearTimers = () => {
+      clearTimeout(rotateTimer.current)
+      clearTimeout(panTimer.current)
+    }
+
+    const onStart = () => {
+      // Any interaction begins — stop auto-rotate and cancel pending timers
+      clearTimers()
+      isResettingPan.current = false
+      onAutoRotateChange(false)
+    }
+
+    const onEnd = () => {
+      // Interaction ends — schedule auto-rotate resume
+      rotateTimer.current = setTimeout(
+        () => onAutoRotateChange(true),
+        ROTATE_RESUME_DELAY
+      )
+
+      // If the camera target has drifted from the origin (i.e. user panned),
+      // schedule a smooth re-centre. This fires even if the mouse was released
+      // outside the modal, because OrbitControls listens at the document level.
+      if (ctrl.target.distanceTo(ORIGIN) > 0.05) {
+        panTimer.current = setTimeout(() => {
+          isResettingPan.current = true
+        }, PAN_RESET_DELAY)
+      }
+    }
+
+    ctrl.addEventListener('start', onStart)
+    ctrl.addEventListener('end', onEnd)
+
+    return () => {
+      ctrl.removeEventListener('start', onStart)
+      ctrl.removeEventListener('end', onEnd)
+      clearTimers()
+    }
+  }, [interactive, onAutoRotateChange])
+
+  // Lerp the orbit target back to centre each frame when a reset is in progress
   useFrame(() => {
     const ctrl = controlsRef.current
-    if (!ctrl || !shouldResetPan.current) return
+    if (!ctrl || !isResettingPan.current) return
     ctrl.target.lerp(ORIGIN, 0.06)
     ctrl.update()
     if (ctrl.target.distanceTo(ORIGIN) < 0.01) {
       ctrl.target.copy(ORIGIN)
       ctrl.update()
-      shouldResetPan.current = false
+      isResettingPan.current = false
     }
   })
 
@@ -135,53 +180,12 @@ function Scene({ url, interactive, autoRotate, panResetSignal }) {
 
 // ── Public component ──────────────────────────────────────────────────────────
 
-const ROTATE_RESUME_DELAY = 2000  // ms before auto-rotate resumes after release
-const PAN_RESET_DELAY     = 2000  // ms before panned view snaps back to centre
-
 export default function ModelViewer({ url, interactive = false }) {
   const [autoRotate, setAutoRotate] = useState(!interactive)
-  const [panResetSignal, setPanResetSignal] = useState(0)
-  const rotateTimer = useRef(null)
-  const panTimer = useRef(null)
-
-  const clearTimers = () => {
-    clearTimeout(rotateTimer.current)
-    clearTimeout(panTimer.current)
-  }
-
-  const handleMouseDown = () => {
-    if (!interactive) return
-    clearTimers()
-    setAutoRotate(false)
-  }
-
-  const handleMouseUp = (e) => {
-    if (!interactive) return
-
-    // Resume auto-rotation after delay
-    rotateTimer.current = setTimeout(() => setAutoRotate(true), ROTATE_RESUME_DELAY)
-
-    // Right-click (button 2) = pan — schedule a target reset
-    if (e.button === 2) {
-      panTimer.current = setTimeout(
-        () => setPanResetSignal((s) => s + 1),
-        PAN_RESET_DELAY
-      )
-    }
-  }
-
-  // If the user drags outside the canvas and releases there, still resume
-  const handleMouseLeave = () => {
-    if (!interactive || !rotateTimer.current) return
-    rotateTimer.current = setTimeout(() => setAutoRotate(true), ROTATE_RESUME_DELAY)
-  }
 
   return (
     <div
       style={{ width: '100%', height: '100%' }}
-      onMouseDown={handleMouseDown}
-      onMouseUp={handleMouseUp}
-      onMouseLeave={handleMouseLeave}
       onContextMenu={(e) => e.preventDefault()}
     >
       <Canvas
@@ -194,7 +198,7 @@ export default function ModelViewer({ url, interactive = false }) {
           url={url}
           interactive={interactive}
           autoRotate={autoRotate}
-          panResetSignal={panResetSignal}
+          onAutoRotateChange={setAutoRotate}
         />
       </Canvas>
     </div>
