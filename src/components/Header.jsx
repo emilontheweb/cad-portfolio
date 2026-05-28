@@ -10,7 +10,7 @@ const NAME        = 'Emil'                          // TODO: add your full name
 const TITLE       = 'Mechanical Design Engineer'    // TODO: update if needed
 const BIO         = 'I design precise, manufacturable parts using Fusion 360. This portfolio showcases my 3D modelling work — feel free to rotate and explore every model.'
 const EMAIL       = 'emil@emilontheweb.dev'
-const LINKEDIN    = 'https://linkedin.com/in/yourhandle'  // TODO: add your LinkedIn URL
+const LINKEDIN    = 'https://linkedin.com/in/emil-englesson-dev'  // TODO: add your LinkedIn URL
 const GITHUB      = 'https://github.com/emilontheweb'
 const PROFILE_IMG = null   // e.g. `${BASE}profile.jpg`  — set to null to show initials instead
 
